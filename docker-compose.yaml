@@ -1,0 +1,12 @@
+services:
+  eleventy:
+    build:
+      context: .
+      args:
+        COMMIT_HASH: 0000000
+    ports:
+      - 8080:8080
+    command: npx @11ty/eleventy --serve
+    volumes:
+      - ./:/app
+    hostname: "eleventy"

@@ -1,0 +1,47 @@
+name: CI/CD
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push events but only for the stable branch
+  push:
+    branches: [stable]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: "us-east-1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # windows-latest | macos-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.SST_DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.SST_DOCKER_HUB_TOKEN }}
+
+      - name: Build Jekyll
+        run: |
+          docker run \
+          -v ${{ github.workspace }}:/app -v ${{ github.workspace }}/_site:/app/_site \
+          hdcdigitalmarketing/standard-site-template:latest \
+            jekyll build \
+            --source site \
+            --destination ./dist \
+            --strict_front_matter \
+            --config ./jekyll.yaml \
+            --trace
+
+      - name: Deploy to AWS S3
+        run: |
+          aws s3 sync ./dist/ s3://${{ secrets.AWS_S3_BUCKET_NAME }} --acl public-read --delete --cache-control max-age=604800
+
+      - name: Create AWS Cloudfront invalidation
+        run: |
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
