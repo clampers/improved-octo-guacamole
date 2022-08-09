@@ -6,7 +6,9 @@ services:
         COMMIT_HASH: 0000000
     ports:
       - 8080:8080
-    command: npx @11ty/eleventy --serve
+    command:
+      - sh
+      - serve.sh
     volumes:
       - ./:/app
     hostname: "eleventy"

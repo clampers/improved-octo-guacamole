@@ -1,83 +1,80 @@
-# eleventy-base-blog
+# Standard Site Template
 
-A starter repository showing how to build a blog with the [Eleventy](https://github.com/11ty/eleventy) static site generator.
+This repo contains (almost) everything a developer needs to spin up a new Heartland Dental website.
 
-[![Build Status](https://travis-ci.org/11ty/eleventy-base-blog.svg?branch=master)](https://travis-ci.org/11ty/eleventy-base-blog)
+## Requirements
 
-## Demos
+- [Docker](https://docs.docker.com/get-docker/) with compose
+- AWS account with [the ability to create IAM user and policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_create-console.html#access_policies_create-json-editor)\*
 
-- [Netlify](https://eleventy-base-blog.netlify.com/)
-- [GitHub Pages](https://11ty.github.io/eleventy-base-blog/)
-- [Remix on Glitch](https://glitch.com/~11ty-eleventy-base-blog)
+---
 
-## Deploy this to your own site
+## Initial Deployment\*
 
-Deploy this Eleventy site in just a few clicks on these services:
+> TODO: [automate this](https://github.com/marketplace/actions/aws-cloudformation-deploy-cloudformation-stack-action-for-github-actions)
 
-- [Get your own Eleventy web site on Netlify](https://app.netlify.com/start/deploy?repository=https://github.com/11ty/eleventy-base-blog)
-- [Get your own Eleventy web site on Vercel](https://vercel.com/import/project?template=11ty%2Feleventy-base-blog)
+- Step 0: Replace all instances of `Hello World!` within this project with your project name.
 
-Or, read more about [Deploying an Eleventy project](https://www.11ty.dev/docs/deployment/).
+- Step 1: Use `aws/s3-website` to deploy to Cloudformation.
+  See: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-cli-creating-stack.html
 
-## Getting Started
+> TODO: Automate this in template
 
-### 1. Clone this Repository
-
-```
-git clone https://github.com/11ty/eleventy-base-blog.git my-blog-name
-```
-
-### 2. Navigate to the directory
+- Step 2: Create an IAM user with access to S3 deployment bucket (generated in step 1)
+  Attach the following policy
 
 ```
-cd my-blog-name
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Resource": [
+                "arn:aws:s3:::<your-bucket-name>",
+                "arn:aws:s3:::<your-bucket-name>/*"
+            ],
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": [
+                "s3:*"
+            ]
+        },
+        {
+            "Sid": "VisualEditor2",
+            "Effect": "Allow",
+            "Action": "cloudfront:*",
+            "Resource": "arn:aws:cloudfront::<your-aws-account-number>:distribution/<your-distribution-id>"
+        }
+    ]
+}
 ```
 
-Specifically have a look at `.eleventy.js` to see if you want to configure any Eleventy options differently.
+- Step 3: Configure GitHub Action secrets by adding the following to `Your Repo > Settings > Secrets > Actions`:
 
-### 3. Install dependencies
+- AWS_ACCESS_KEY_ID - What you copied in the previous step as AWS access key ID.
+- AWS_SECRET_ACCESS_KEY - What you copied in the previous step as Secret access key.
+- AWS_S3_BUCKET_NAME - The bucket name you set previously in your IAM Policy (ex: www.acme.com).
+- AWS_CLOUDFRONT_DISTRIBUTION_ID - The Cloudfront distribution id you set previously in your IAM Policy.
 
-```
-npm install
-```
+> TODO: Docker Hub token + user integration
 
-### 4. Edit \_data/metadata.json
+- Step 4: Double check that the repository has access to the organization level Actions token and user: `SST_DOCKER_HUB_TOKEN`, `SST_DOCKER_HUB_USERNAME`
 
-### 5. Run Eleventy
+- Step 5: done?
 
-```
-npx @11ty/eleventy
-```
+---
 
-Or build and host locally for local development
+## Local Development
 
-```
-npx @11ty/eleventy --serve
-```
+> Important:
+>
+> > If you are developing on Windows `serve.sh` needs to be changed from CRLF to LF
 
-Or build automatically when a template changes:
+- `docker-compose up`
+- The server will start and be available at `http://localhost:8080`
+- Auto reload is not currently supported. You can edit the generated `./_site` files and manually reload to preview changes.
 
-```
-npx @11ty/eleventy --watch
-```
+> TODO: get auto reload working
 
-Or in debug mode:
+## Other
 
-```
-DEBUG=* npx @11ty/eleventy
-```
-
-### Implementation Notes
-
-- `about/index.md` shows how to add a content page.
-- `posts/` has the blog posts but really they can live in any directory. They need only the `post` tag to be added to this collection.
-- Use the `eleventyNavigation` key in your front matter to add a template to the top level site navigation. For example, this is in use on `index.njk` and `about/index.md`.
-- Content can be any template format (blog posts needn’t be markdown, for example). Configure your supported templates in `.eleventy.js` -> `templateFormats`.
-- The `css` and `img` directories in the input directory will be copied to the output folder (via `addPassthroughCopy()` in the `.eleventy.js` file).
-- The blog post feed template is in `feed/feed.njk`. This is also a good example of using a global data files in that it uses `_data/metadata.json`.
-- This example uses three layouts:
-  - `_includes/layouts/base.njk`: the top level HTML structure
-  - `_includes/layouts/home.njk`: the home page template (wrapped into `base.njk`)
-  - `_includes/layouts/post.njk`: the blog post template (wrapped into `base.njk`)
-- `_includes/postlist.njk` is a Nunjucks include and is a reusable component used to display a list of all the posts. `index.njk` has an example of how to use it.
-
+\*: Only necessary on initial deployment, likely already completed by our DevOps team.

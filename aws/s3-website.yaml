@@ -1,0 +1,193 @@
+# (c) 2022 Heartland Dental
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: >-
+  Creates a Cloudfront distribution and S3 buckets for a website
+
+Parameters:
+  LambdaNodeVersion:
+    Description: Node.js version for Lambda & Lambda@Edge functions
+    Type: String
+    Default: nodejs14.x
+
+  WebsiteMinTTL:
+    Description: Website minimum TTL (time to live)
+    Type: String
+    Default: 86400
+
+  WebsiteMaxTTL:
+    Description: Website maximum TTL (time to live)
+    Type: String
+    Default: 31536000
+
+Resources:
+  # Location of production website
+  DeployBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DeployBucket
+      PolicyDocument:
+        Statement:
+          - Resource:
+              - !GetAtt DeployBucket.Arn
+              - !Join ["", [!GetAtt DeployBucket.Arn, "/*"]]
+            Action: "s3:GetObject"
+            Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOriginIdentity.S3CanonicalUserId
+
+  DeployBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::Region}-${AWS::StackName}-prod"
+      AccessControl: Private
+      LoggingConfiguration:
+        DestinationBucketName: !Ref DeployLoggingBucket
+        LogFilePrefix: access-logs
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: 404.html
+
+  DeployLoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::Region}-${AWS::StackName}-logs"
+      AccessControl: LogDeliveryWrite
+
+  CloudFrontOriginIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: "origin identity"
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt DeployBucket.DomainName
+            Id: !Ref DeployBucket
+            CustomOriginConfig:
+              HTTPPort: "80"
+              HTTPSPort: "443"
+              OriginProtocolPolicy: http-only
+        HttpVersion: http2
+        DefaultRootObject: index.html
+        Enabled: true
+        DefaultCacheBehavior:
+          MinTTL: !Ref WebsiteMinTTL
+          MaxTTL: !Ref WebsiteMaxTTL
+          ForwardedValues:
+            QueryString: true
+          TargetOriginId: !Ref DeployBucket
+          ViewerProtocolPolicy: "redirect-to-https"
+          AllowedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          LambdaFunctionAssociations:
+            - EventType: "origin-request"
+              LambdaFunctionARN: !Ref VersionedLambdaFunction
+
+  # To handle /index.html requests we need this because, S3 is just a file system
+  # https://aws.amazon.com/blogs/compute/implementing-default-directory-indexes-in-amazon-s3-backed-amazon-cloudfront-origins-using-lambdaedge/
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      MemorySize: 128
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: !Ref LambdaNodeVersion
+      Timeout: 5
+      Code:
+        ZipFile: !Sub |
+          "use strict";
+          exports.handler = (event, context, callback) => {
+              var request = event.Records[0].cf.request;
+              var olduri = request.uri;
+              var newuri = olduri.replace(/\/$/, "\/index.html");
+              request.uri = newuri;
+              return callback(null, request);
+          };
+      # - End
+
+  VersionedLambdaFunction:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref LambdaFunction
+
+  # -- IAM
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "sts:AssumeRole"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+                - "ecs-tasks.amazonaws.com"
+                - "ecs.amazonaws.com"
+      Path: "/"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Resource:
+                  - !GetAtt DeployBucket.Arn
+                  - !Join ["", [!GetAtt DeployBucket.Arn, "/*"]]
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:PutObject"
+
+  LambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - edgelambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+Outputs:
+  WebsiteUrl:
+    Description: URL of deployed website
+    Value: !GetAtt Distribution.DomainName
+
+  DeployBucket:
+    Description: S3 bucket containing deployed website
+    Value: !GetAtt DeployBucket.Arn
+
+  DeployBucketLogs:
+    Description: S3 bucket containing deploy bucket access logs
+    Value: !GetAtt DeployLoggingBucket.Arn
+
+  DeployBucketUrl:
+    Description: IPv4 DNS name of the deploy bucket
+    Value: !GetAtt DeployBucket.DomainName
+
+  DistributionId:
+    Description: CloudFront Distribution Id
+    Value: !Ref Distribution
+
+  DistributionUrl:
+    Description: CloudFront Distribution URL
+    Value: !GetAtt Distribution.DomainName
